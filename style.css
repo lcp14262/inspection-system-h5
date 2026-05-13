@@ -138,10 +138,16 @@ body {
   color: var(--text-secondary);
 }
 
-#completionChart {
+/* 图表包装 */
+.chart-wrapper {
+  display: flex;
+  justify-content: center;
   height: 200px;
-  max-width: 200px;
-  margin: 0 auto;
+}
+
+#completionChart {
+  height: 200px !important;
+  width: 200px !important;
 }
 
 /* 快捷操作 */
