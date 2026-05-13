@@ -9,7 +9,10 @@
  * @returns {string} 格式化后的 UID（冒号分隔）
  */
 function formatNFCUid(uid) {
-  return uid.match(/.{1,2}/g).join(':').toUpperCase();
+  if (!uid) return '';
+  const str = uid.toString().toUpperCase();
+  const parts = str.match(/.{1,2}/g);
+  return parts ? parts.join(':') : str;
 }
 
 /**

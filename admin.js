@@ -184,46 +184,59 @@ createApp({
     async function scanNFC() {
       // 【诊断】记录设备环境
       console.log('[NFC 诊断] NDEFReader:', 'NDEFReader' in window);
+      console.log('[NFC 诊断] window.lark:', !!window.lark);
       console.log('[NFC 诊断] window.lark?.nfc:', !!window.lark?.nfc);
       console.log('[NFC 诊断] window.tt?.nfc:', !!window.tt?.nfc);
       console.log('[NFC 诊断] UserAgent:', navigator.userAgent);
       console.log('[NFC 诊断] Protocol:', location.protocol);
 
       try {
-        // 1️⃣ 优先使用飞书 SDK（飞书 App 内置浏览器，iOS/Android 均支持）
-        const larkAPI = window.lark?.nfc || window.tt?.nfc;
-        if (larkAPI) {
+        // 1️⃣ 优先使用飞书 JS Bridge（飞书内置浏览器会注入 window.lark）
+        if (window.lark) {
           try {
-            const result = await larkAPI.scan({});
-            if (result && result.uid) {
-              checkpointForm.uid = formatNFCUid(result.uid);
-              return;
+            // 等待桥接就绪
+            await new Promise(resolve => {
+              if (window.lark.ready) {
+                window.lark.ready(resolve);
+              } else {
+                resolve();
+              }
+            });
+            // 尝试多种路径获取 NFC API
+            const larkNFC = window.lark.nfc || (window.lark.device && window.lark.device.nfc) || window.tt?.nfc;
+            if (larkNFC) {
+              const result = await larkNFC.scan({});
+              if (result && result.uid) {
+                checkpointForm.uid = formatNFCUid(result.uid);
+                return;
+              }
+            } else {
+              console.warn('[NFC 诊断] 飞书环境但无 NFC API 暴露');
             }
           } catch (larkError) {
             console.warn('飞书 NFC 失败，降级到 Web NFC:', larkError);
           }
         }
 
-        // 2️⃣ 降级：Web NFC（仅 Android Chrome + HTTPS）
+        // 2️⃣ 降级：Web NFC（Android Chrome/WebView + HTTPS）
         if ('NDEFReader' in window) {
           const ndef = new NDEFReader();
-          await ndef.scan();
-
+          // 先挂载事件再调用 scan，避免时序问题
           ndef.onreadingerror = () => {
             alert('NFC 标签读取失败，请重试或手动输入 UID');
           };
-
           ndef.onreading = event => {
             const uid = event.serialNumber;
             if (uid) {
               checkpointForm.uid = formatNFCUid(uid);
             } else {
-              alert('未能读取到 NFC 标签序列号（Web NFC 限制），请手动输入 UID');
+              alert('未能读取到 NFC 标签序列号，请手动输入 UID');
             }
           };
+          await ndef.scan();
         } else {
           // 3️⃣ 完全降级：手动输入
-          alert('设备不支持 NFC 读取，请手动输入 UID');
+          alert('当前环境暂不支持 NFC 读取，请手动输入 UID');
         }
       } catch (error) {
         console.error('NFC 扫描失败:', error);

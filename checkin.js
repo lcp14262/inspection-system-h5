@@ -52,6 +52,7 @@ createApp({
       await loadCheckpoints();
       await loadRecords();
       initChart();
+      await registerServiceWorker();
     });
 
     // 加载用户信息（飞书 JS-SDK）
@@ -168,22 +169,40 @@ createApp({
     async function scanNFC() {
       // 【诊断】记录设备环境
       console.log('[NFC 诊断] NDEFReader:', 'NDEFReader' in window);
+      console.log('[NFC 诊断] window.lark:', !!window.lark);
       console.log('[NFC 诊断] window.lark?.nfc:', !!window.lark?.nfc);
       console.log('[NFC 诊断] window.tt?.nfc:', !!window.tt?.nfc);
       console.log('[NFC 诊断] UserAgent:', navigator.userAgent);
       console.log('[NFC 诊断] Protocol:', location.protocol);
 
+      // 【平台检测】用于提供针对性提示
+      const isIOS = /iPhone|iPad|iPod/i.test(navigator.userAgent);
+      const isFeishu = /Lark|Feishu|lark/i.test(navigator.userAgent);
+
       try {
-        // 1️⃣ 优先使用飞书 SDK（飞书 App 内置浏览器，iOS/Android 均支持）
-        const larkAPI = window.lark?.nfc || window.tt?.nfc;
-        if (larkAPI) {
+        // 1️⃣ 优先使用飞书 JS Bridge（飞书内置浏览器会注入 window.lark）
+        if (window.lark) {
           try {
-            const result = await larkAPI.scan({});
-            if (result && result.uid) {
-              nfcUid.value = formatNFCUid(result.uid);
-              nfcStatus.value = '读取成功';
-              checkinStep.value = 2;
-              return;
+            // 等待桥接就绪
+            await new Promise(resolve => {
+              if (window.lark.ready) {
+                window.lark.ready(resolve);
+              } else {
+                resolve(); // 老版本直接使用
+              }
+            });
+            // 尝试多种路径获取 NFC API
+            const larkNFC = window.lark.nfc || (window.lark.device && window.lark.device.nfc) || window.tt?.nfc;
+            if (larkNFC) {
+              const result = await larkNFC.scan({});
+              if (result && result.uid) {
+                nfcUid.value = formatNFCUid(result.uid);
+                nfcStatus.value = '读取成功';
+                checkinStep.value = 2;
+                return;
+              }
+            } else {
+              console.warn('[NFC 诊断] 飞书环境但无 NFC API 暴露');
             }
           } catch (larkError) {
             console.warn('飞书 NFC 失败，降级到 Web NFC:', larkError);
@@ -193,26 +212,34 @@ createApp({
         // 2️⃣ 降级：Web NFC（仅 Android Chrome + HTTPS）
         if ('NDEFReader' in window) {
           const ndef = new NDEFReader();
-          await ndef.scan();
-          
+          // 先挂载事件再调用 scan，避免时序问题
           ndef.onreadingerror = () => {
             nfcStatus.value = '读取失败，请重试';
           };
-          
           ndef.onreading = event => {
             const uid = event.serialNumber;
             nfcUid.value = uid ? formatNFCUid(uid) : (uid || '');
             nfcStatus.value = '读取成功';
             checkinStep.value = 2;
           };
+          await ndef.scan();
         } else {
-          // 3️⃣ 完全降级：手动输入
-          nfcStatus.value = '设备不支持 NFC，请手动输入 UID';
+          // 3️⃣ 完全降级：手动输入（平台针对性提示）
+          let msg = '当前环境暂不支持 NFC 读取，请手动输入 UID';
+          if (isIOS && isFeishu) {
+            msg = '⚠️ iPhone iOS限制飞书网页无法访问NFC，请手动输入 UID';
+          } else if (isIOS) {
+            msg = '⚠️ iPhone 浏览器不支持 NFC 读取，请手动输入 UID';
+          } else if (isFeishu) {
+            msg = '⚠️ 飞书环境暂不支持 NFC 读取，请手动输入 UID';
+          }
+          nfcStatus.value = msg;
           checkinStep.value = 2;
         }
       } catch (error) {
         console.error('NFC 扫描失败:', error);
-        nfcStatus.value = '扫描失败：' + error.message;
+        nfcStatus.value = '扫描失败：' + error.message + '，请手动输入 UID';
+        checkinStep.value = 2;
       }
     }
 
@@ -249,7 +276,7 @@ createApp({
           },
           {
             enableHighAccuracy: true,
-            timeout: 10000,
+            timeout: 30000,
             maximumAge: 0
           }
         );
@@ -338,12 +365,27 @@ createApp({
           }
           // 刷新记录
           await loadRecords();
+        } else {
+          // 根据状态码给出针对性提示
+          if (response.status === 400) {
+            alert('❌ ' + (result.message || '请求参数错误，请检查 NFC 标签是否有效'));
+          } else if (response.status === 500) {
+            alert('❌ 服务器错误：' + (result.message || '请稍后重试'));
+          } else {
+            alert('❌ ' + (result.message || '打卡失败，请重试'));
+          }
         }
       } catch (error) {
         console.error('打卡提交失败:', error);
+        // 区分网络错误和其他错误
+        if (error instanceof TypeError && error.message.includes('fetch')) {
+          alert('❌ 网络错误：无法连接到服务器，请检查网络连接');
+        } else {
+          alert('❌ 提交失败：' + error.message);
+        }
         checkinResult.value = {
           success: false,
-          message: '提交失败：' + error.message
+          message: error.message
         };
       } finally {
         submitting.value = false;
