@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>安环巡检打卡</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- 顶部导航 -->
+    <header class="header">
+      <h1>安环巡检打卡</h1>
+      <div class="user-info" v-if="userInfo">
+        <span>{{ userInfo.name }}</span>
+      </div>
+    </header>
+
+    <!-- Tab 导航 -->
+    <nav class="tab-nav">
+      <button :class="['tab-btn', { active: currentTab === 'home' ]}" @click="currentTab = 'home'">
+        📊 首页
+      </button>
+      <button :class="['tab-btn', { active: currentTab === 'checkpoints' ]}" @click="currentTab = 'checkpoints'">
+        📍 巡检点
+      </button>
+      <button :class="['tab-btn', { active: currentTab === 'records' ]}" @click="currentTab = 'records'">
+        📝 记录
+      </button>
+    </nav>
+
+    <!-- 首页 -->
+    <div v-show="currentTab === 'home'" class="tab-content">
+      <div class="stats-card">
+        <h2>今日统计</h2>
+        <div class="stats-grid">
+          <div class="stat-item">
+            <div class="stat-value">{{ todayStats.completed }}</div>
+            <div class="stat-label">已完成</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">{{ todayStats.total }}</div>
+            <div class="stat-label">总巡检点</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-value">{{ todayStats.rate }}%</div>
+            <div class="stat-label">完成率</div>
+          </div>
+        </div>
+        <canvas id="completionChart"></canvas>
+      </div>
+
+      <div class="quick-actions">
+        <button class="action-btn" @click="quickCheckin">
+          ⚡ 快速打卡
+        </button>
+        <button class="action-btn secondary" @click="currentTab = 'records'">
+          📋 查看记录
+        </button>
+      </div>
+    </div>
+
+    <!-- 巡检点列表 -->
+    <div v-show="currentTab === 'checkpoints'" class="tab-content">
+      <div class="checkpoint-list">
+        <div v-for="checkpoint in checkpoints" :key="checkpoint.uid" class="checkpoint-card">
+          <div class="checkpoint-header">
+            <h3>{{ checkpoint.name }}</h3>
+            <span :class="['status-badge', checkpoint.status]">
+              {{ checkpoint.status === 'completed' ? '✅ 已完成' : '⭕ 未完成' }}
+            </span>
+          </div>
+          <div class="checkpoint-info">
+            <p>📍 {{ checkpoint.location || '位置信息' }}</p>
+            <p>📊 今日打卡：{{ checkpoint.todayCount || 0 }} 次</p>
+          </div>
+          <button class="checkin-btn" @click="startCheckin(checkpoint)">
+            去打卡
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 打卡记录 -->
+    <div v-show="currentTab === 'records'" class="tab-content">
+      <div class="filter-bar">
+        <input type="date" v-model="filters.startDate" class="filter-input">
+        <span>至</span>
+        <input type="date" v-model="filters.endDate" class="filter-input">
+        <button @click="loadRecords" class="filter-btn">查询</button>
+      </div>
+      
+      <div class="records-list">
+        <div v-for="record in records" :key="record.record_id" class="record-card">
+          <div class="record-header">
+            <span class="record-time">{{ formatTime(record['打卡时间']) }}</span>
+            <span :class="['record-status', record['打卡状态']]">
+              {{ record['打卡状态'] }}
+            </span>
+          </div>
+          <div class="record-body">
+            <p><strong>巡检点:</strong> {{ record['巡检点名称'] }}</p>
+            <p><strong>打卡人:</strong> {{ record['用户姓名'] }}</p>
+            <p><strong>GPS:</strong> {{ record['GPS 坐标'] }}</p>
+            <p><strong>校验:</strong> {{ record['GPS 校验结果'] }}</p>
+            <div v-if="record['现场照片'] && record['现场照片'].length > 0" class="photo-preview">
+              <img :src="getFileUrl(record['现场照片'][0].file_key)" alt="现场照片">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 打卡弹窗 -->
+    <div v-if="showCheckinModal" class="modal-overlay" @click="closeCheckinModal">
+      <div class="modal-content" @click.stop>
+        <h2>巡检打卡</h2>
+        
+        <div class="checkin-steps">
+          <!-- 步骤 1: NFC 读取 -->
+          <div :class="['step', checkinStep >= 1 ? 'active' : '']">
+            <div class="step-number">1</div>
+            <div class="step-content">
+              <h4>NFC 标签读取</h4>
+              <p v-if="checkinStep === 1 || (checkinStep > 1 && !nfcUid)">{{ nfcStatus }}</p>
+              <p v-else-if="checkinStep > 1 && nfcUid">✅ {{ nfcUid }}</p>
+              <button v-if="checkinStep === 1" @click="scanNFC" class="step-btn">
+                📱 读取 NFC
+              </button>
+              <input v-else v-model="nfcUid" placeholder="或手动输入 UID" class="manual-input">
+            </div>
+          </div>
+
+          <!-- 步骤 2: GPS 定位 -->
+          <div :class="['step', checkinStep >= 2 ? 'active' : '']">
+            <div class="step-number">2</div>
+            <div class="step-content">
+              <h4>GPS 定位</h4>
+              <p v-if="checkinStep === 2">{{ gpsStatus }}</p>
+              <p v-else-if="checkinStep > 2">✅ {{ gps.lat }}, {{ gps.lng }}</p>
+              <button v-if="checkinStep === 2" @click="getGPS" class="step-btn">
+                📍 获取定位
+              </button>
+            </div>
+          </div>
+
+          <!-- 步骤 3: 拍照 -->
+          <div :class="['step', checkinStep >= 3 ? 'active' : '']">
+            <div class="step-number">3</div>
+            <div class="step-content">
+              <h4>现场拍照</h4>
+              <div v-if="photoPreview" class="photo-preview-large">
+                <img :src="photoPreview" alt="现场照片">
+              </div>
+              <button v-if="checkinStep === 3" @click="takePhoto" class="step-btn">
+                📷 拍照
+              </button>
+              <button v-if="photoPreview" @click="retakePhoto" class="step-btn secondary">
+                🔄 重拍
+              </button>
+            </div>
+          </div>
+
+          <!-- 步骤 4: 提交 -->
+          <div :class="['step', checkinStep >= 4 ? 'active' : '']">
+            <div class="step-number">4</div>
+            <div class="step-content">
+              <h4>提交打卡</h4>
+              <button v-if="checkinStep >= 3" @click="submitCheckin" class="step-btn primary" :disabled="submitting">
+                {{ submitting ? '⏳ 提交中...' : '✅ 提交打卡' }}
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 结果反馈 -->
+        <div v-if="checkinResult" :class="['result-box', checkinResult.success ? 'success' : 'error']">
+          <p>{{ checkinResult.message }}</p>
+          <p v-if="checkinResult.data">
+            距离偏差：{{ checkinResult.data.distance }}米
+          </p>
+        </div>
+
+        <div class="modal-actions">
+          <button @click="closeCheckinModal" class="btn-cancel">关闭</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="utils.js"></script>
+  <script src="checkin.js"></script>
+</body>
+</html>

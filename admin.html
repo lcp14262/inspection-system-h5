@@ -1,0 +1,229 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>安环巡检打卡 - 管理后台</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="admin-style.css">
+  <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+</head>
+<body>
+  <div id="app">
+    <!-- 登录页面 -->
+    <div v-if="!isLoggedIn" class="login-container">
+      <div class="login-card">
+        <h1>🔐 管理后台登录</h1>
+        <p>请使用飞书扫码登录</p>
+        <button @click="loginWithLark" class="login-btn">
+          飞书登录
+        </button>
+      </div>
+    </div>
+
+    <!-- 管理后台 -->
+    <div v-else class="admin-container">
+      <header class="admin-header">
+        <h1>安环巡检打卡 - 管理后台</h1>
+        <div class="user-menu">
+          <span>{{ userInfo.name }}</span>
+          <button @click="logout" class="logout-btn">退出</button>
+        </div>
+      </header>
+
+      <nav class="admin-nav">
+        <button :class="['nav-btn', { active: adminTab === 'checkpoints' }]" @click="adminTab = 'checkpoints'">
+          📍 巡检点管理
+        </button>
+        <button :class="['nav-btn', { active: adminTab === 'records' }]" @click="adminTab = 'records'">
+          📝 打卡记录
+        </button>
+        <button :class="['nav-btn', { active: adminTab === 'stats' }]" @click="adminTab = 'stats'">
+          📊 统计分析
+        </button>
+      </nav>
+
+      <!-- 巡检点管理 -->
+      <div v-show="adminTab === 'checkpoints'" class="admin-content">
+        <div class="admin-toolbar">
+          <button @click="showAddCheckpoint = true" class="btn-primary">
+            ➕ 添加巡检点
+          </button>
+          <button @click="exportCheckpoints" class="btn-secondary">
+            📥 导出 Excel
+          </button>
+        </div>
+
+        <div class="data-table">
+          <table>
+            <thead>
+              <tr>
+                <th>巡检点名称</th>
+                <th>NFC 标签 UID</th>
+                <th>GPS 坐标</th>
+                <th>偏差阈值 (米)</th>
+                <th>状态</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="cp in checkpoints" :key="cp.uid">
+                <td>{{ cp.name }}</td>
+                <td><code>{{ cp.uid }}</code></td>
+                <td>{{ cp.lat }}, {{ cp.lng }}</td>
+                <td>{{ cp.threshold }}</td>
+                <td>
+                  <span :class="['badge', cp.enabled ? 'badge-success' : 'badge-secondary']">
+                    {{ cp.enabled ? '启用' : '禁用' }}
+                  </span>
+                </td>
+                <td>
+                  <button @click="editCheckpoint(cp)" class="btn-sm">编辑</button>
+                  <button @click="deleteCheckpoint(cp)" class="btn-sm btn-danger">删除</button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 打卡记录 -->
+      <div v-show="adminTab === 'records'" class="admin-content">
+        <div class="filter-form">
+          <div class="form-row">
+            <label>开始日期:</label>
+            <input type="date" v-model="filters.startDate">
+          </div>
+          <div class="form-row">
+            <label>结束日期:</label>
+            <input type="date" v-model="filters.endDate">
+          </div>
+          <div class="form-row">
+            <label>用户姓名:</label>
+            <input type="text" v-model="filters.userName" placeholder="可选">
+          </div>
+          <div class="form-row">
+            <label>巡检点:</label>
+            <select v-model="filters.checkpointName">
+              <option value="">全部</option>
+              <option v-for="cp in checkpoints" :key="cp.uid" :value="cp.name">
+                {{ cp.name }}
+              </option>
+            </select>
+          </div>
+          <button @click="loadRecords" class="btn-primary">查询</button>
+          <button @click="exportRecords" class="btn-secondary">📥 导出 Excel</button>
+        </div>
+
+        <div class="data-table">
+          <table>
+            <thead>
+              <tr>
+                <th>打卡时间</th>
+                <th>用户</th>
+                <th>巡检点</th>
+                <th>NFC 标签</th>
+                <th>GPS 坐标</th>
+                <th>校验结果</th>
+                <th>状态</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="record in records" :key="record.record_id">
+                <td>{{ formatDateTime(record['打卡时间']) }}</td>
+                <td>{{ record['用户姓名'] }}</td>
+                <td>{{ record['巡检点名称'] }}</td>
+                <td><code>{{ record['NFC 标签 UID'] }}</code></td>
+                <td>{{ record['GPS 坐标'] }}</td>
+                <td>
+                  <span :class="['badge', record['GPS 校验结果'] === '通过' ? 'badge-success' : 'badge-danger']">
+                    {{ record['GPS 校验结果'] }}
+                  </span>
+                </td>
+                <td>
+                  <span :class="['badge', record['打卡状态'] === '成功' ? 'badge-success' : 'badge-danger']">
+                    {{ record['打卡状态'] }}
+                  </span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 统计分析 -->
+      <div v-show="adminTab === 'stats'" class="admin-content">
+        <div class="stats-overview">
+          <div class="stat-card">
+            <h3>今日打卡次数</h3>
+            <div class="stat-value">{{ stats.todayCheckins }}</div>
+          </div>
+          <div class="stat-card">
+            <h3>今日完成率</h3>
+            <div class="stat-value">{{ stats.todayRate }}%</div>
+          </div>
+          <div class="stat-card">
+            <h3>本月打卡次数</h3>
+            <div class="stat-value">{{ stats.monthCheckins }}</div>
+          </div>
+          <div class="stat-card">
+            <h3>异常打卡次数</h3>
+            <div class="stat-value" style="color: var(--danger-color)">{{ stats.abnormalCheckins }}</div>
+          </div>
+        </div>
+
+        <div class="chart-container">
+          <h3>打卡趋势（近 7 天）</h3>
+          <canvas id="trendChart"></canvas>
+        </div>
+
+        <div class="chart-container">
+          <h3>各巡检点打卡统计</h3>
+          <canvas id="checkpointChart"></canvas>
+        </div>
+      </div>
+    </div>
+
+    <!-- 添加/编辑巡检点弹窗 -->
+    <div v-if="showAddCheckpoint || showEditCheckpoint" class="modal-overlay" @click="closeModal">
+      <div class="modal-content" @click.stop>
+        <h2>{{ showEditCheckpoint ? '编辑巡检点' : '添加巡检点' }}</h2>
+        <div class="form-group">
+          <label>巡检点名称 *</label>
+          <input type="text" v-model="checkpointForm.name" required>
+        </div>
+        <div class="form-group">
+          <label>NFC 标签 UID *</label>
+          <input type="text" v-model="checkpointForm.uid" placeholder="格式：04:5A:2B:3C:4D:5E" required>
+          <button @click="scanNFC" class="btn-sm btn-secondary" style="margin-top: 8px;">
+            📱 扫描 NFC 标签
+          </button>
+        </div>
+        <div class="form-group">
+          <label>GPS 纬度 *</label>
+          <input type="number" step="0.000001" v-model="checkpointForm.lat" required>
+        </div>
+        <div class="form-group">
+          <label>GPS 经度 *</label>
+          <input type="number" step="0.000001" v-model="checkpointForm.lng" required>
+        </div>
+        <div class="form-group">
+          <label>偏差阈值 (米)</label>
+          <input type="number" v-model="checkpointForm.threshold" value="100">
+        </div>
+        <div class="form-group">
+          <label>
+            <input type="checkbox" v-model="checkpointForm.enabled"> 启用
+          </label>
+        </div>
+        <div class="modal-actions">
+          <button @click="closeModal" class="btn-cancel">取消</button>
+          <button @click="saveCheckpoint" class="btn-primary">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script src="admin.js"></script>
+</body>
+</html>
