@@ -8,7 +8,7 @@
  * @param {string} uid - 原始 UID
  * @returns {string} 格式化后的 UID（冒号分隔）
  */
-export function formatNFCUid(uid) {
+function formatNFCUid(uid) {
   return uid.match(/.{1,2}/g).join(':').toUpperCase();
 }
 
@@ -19,7 +19,7 @@ export function formatNFCUid(uid) {
  * @param {number} quality - 压缩质量 (0-1)
  * @returns {Promise<string>} Base64 格式
  */
-export async function compressPhoto(file, maxWidth = 1920, quality = 0.8) {
+async function compressPhoto(file, maxWidth = 1920, quality = 0.8) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = (e) => {
@@ -57,7 +57,7 @@ export async function compressPhoto(file, maxWidth = 1920, quality = 0.8) {
  * @param {number} lng2 - 终点经度
  * @returns {number} 距离（米）
  */
-export function calculateDistance(lat1, lng1, lat2, lng2) {
+function calculateDistance(lat1, lng1, lat2, lng2) {
   const R = 6371000; // 地球半径（米）
   const dLat = (lat2 - lat1) * Math.PI / 180;
   const dLng = (lng2 - lng1) * Math.PI / 180;
@@ -72,7 +72,7 @@ export function calculateDistance(lat1, lng1, lat2, lng2) {
  * 检测是否支持 Web NFC
  * @returns {boolean}
  */
-export function isNFCsupported() {
+function isNFCsupported() {
   return 'NDEFReader' in window;
 }
 
@@ -80,7 +80,7 @@ export function isNFCsupported() {
  * 检测是否在飞书内
  * @returns {boolean}
  */
-export function isInLark() {
+function isInLark() {
   return window.lark !== undefined;
 }
 
@@ -88,14 +88,14 @@ export function isInLark() {
  * 检测 iOS 设备
  * @returns {boolean}
  */
-export function isIOS() {
+function isIOS() {
   return /iPad|iPhone|iPod/.test(navigator.userAgent) && !window.MSStream;
 }
 
 /**
  * 本地存储封装
  */
-export const storage = {
+const storage = {
   /**
    * 保存数据
    */
@@ -135,7 +135,7 @@ export const storage = {
 /**
  * 离线缓存管理（IndexedDB）
  */
-export const offlineCache = {
+const offlineCache = {
   dbName: 'InspectionCheckinDB',
   version: 1,
 
@@ -237,7 +237,7 @@ export const offlineCache = {
 /**
  * Service Worker 注册
  */
-export async function registerServiceWorker() {
+async function registerServiceWorker() {
   if ('serviceWorker' in navigator) {
     try {
       const registration = await navigator.serviceWorker.register('/sw.js', {
@@ -253,14 +253,14 @@ export async function registerServiceWorker() {
 /**
  * 检查网络状态
  */
-export function isOnline() {
+function isOnline() {
   return navigator.onLine;
 }
 
 /**
  * 监听网络状态变化
  */
-export function onNetworkChange(callback) {
+function onNetworkChange(callback) {
   window.addEventListener('online', () => callback(true));
   window.addEventListener('offline', () => callback(false));
 }
